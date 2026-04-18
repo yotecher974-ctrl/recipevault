@@ -14,6 +14,23 @@ const DB = {
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 
+// ─── PLURIEL ──────────────────────────────────────────────────────────────────
+// FIX #2 : pluriel conditionnel sur les unités dénombrables
+const pluralize = (qty, unit) => {
+  const n = parseFloat(qty);
+  if (unit === "unités") return n <= 1 ? "unité" : "unités";
+  return unit;
+};
+
+// ─── DECIMAL PARSE ────────────────────────────────────────────────────────────
+// FIX #3 : conversion string → number sécurisée (accepte virgule ET point)
+const parseDecimal = (str) => {
+  if (str === "" || str === undefined || str === null) return "";
+  const normalized = String(str).replace(",", ".");
+  const n = parseFloat(normalized);
+  return isNaN(n) ? "" : n;
+};
+
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
 const seedRecipes = [
   {
@@ -87,6 +104,8 @@ const Icon = ({ name, size = 20, style = {} }) => {
     stop: "M4 4h16v16H4z",
     chevdown: "M6 9l6 6 6-6",
     chevup: "M18 15l-6-6-6 6",
+    share: "M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8 M16 6l-4-4-4 4 M12 2v13",
+    "file-text": "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
   };
   const d = icons[name] || icons.home;
   return (
@@ -124,6 +143,19 @@ function useTimer(initialSeconds = 0) {
 // ─── UNIT LABELS ──────────────────────────────────────────────────────────────
 const UNITS = ["g", "mL", "unités", "c. à café", "c. à soupe"];
 const CATEGORIES = ["Entrée", "Plat", "Dessert", "Boisson", "Snack", "Petit-déjeuner", "Sauce", "Autre"];
+
+// ─── COOK TYPE LABELS ─────────────────────────────────────────────────────────
+// FIX #7 : format compact pour la poêle : 🔥 4/9 au lieu de "Poêle Feu 4/9"
+const formatCookChip = (step) => {
+  if (!step.cookType) return null;
+  if (step.cookType === "four") {
+    return step.temp ? `🔥 Four — ${step.temp}°C` : "🔥 Four";
+  }
+  if (step.cookType === "poele") {
+    return step.flame ? `🔥 ${step.flame}/9` : "🔥 Poêle";
+  }
+  return "💡 Autre";
+};
 
 // ─── GLOBAL STYLES ────────────────────────────────────────────────────────────
 const GlobalStyles = ({ dark }) => (
@@ -163,6 +195,8 @@ const GlobalStyles = ({ dark }) => (
     @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes timerPulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.04);} }
+    /* FIX #4 : toast centré */
+    @keyframes toastIn { from { opacity:0; transform:translate(-50%,-8px); } to { opacity:1; transform:translate(-50%,0); } }
     .anim-fade-up { animation: fadeUp .35s cubic-bezier(.22,1,.36,1) both; }
     .anim-scale { animation: scaleIn .25s cubic-bezier(.22,1,.36,1) both; }
     .btn { display:flex; align-items:center; justify-content:center; gap:6px; border:none; outline:none;
@@ -197,17 +231,24 @@ const GlobalStyles = ({ dark }) => (
       padding:0 6px; border-radius:99px; font-size:11px; font-weight:700; background:var(--accent); color:#fff; }
     .divider { height:1px; background:var(--border); margin:8px 0; }
     .label { font-size:12px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
+    /* Step insert button */
+    .step-insert-btn { opacity:0; transition:opacity .15s; }
+    .step-insert-btn:focus { opacity:1; }
+    .step-wrapper:hover .step-insert-btn { opacity:1; }
   `}</style>
 );
 
 // ─── TOAST ────────────────────────────────────────────────────────────────────
+// FIX #4 : centré horizontalement avec animation dédiée
 function Toast({ msg, onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2400); return () => clearTimeout(t); }, [onDone]);
   return (
-    <div style={{ position:"fixed", bottom:90, left:"50%", transform:"translateX(-50%)", zIndex:999,
-      background:"var(--text)", color:"var(--bg)", padding:"10px 20px", borderRadius:99,
-      fontSize:14, fontWeight:500, whiteSpace:"nowrap", boxShadow:"0 4px 20px rgba(0,0,0,.25)",
-      animation:"fadeUp .25s both" }}>{msg}</div>
+    <div style={{
+      position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
+      background: "var(--text)", color: "var(--bg)", padding: "10px 22px", borderRadius: 99,
+      fontSize: 14, fontWeight: 500, whiteSpace: "nowrap", boxShadow: "0 4px 24px rgba(0,0,0,.28)",
+      animation: "toastIn .25s both", pointerEvents: "none",
+    }}>{msg}</div>
   );
 }
 
@@ -264,7 +305,7 @@ function TimerWidget({ minutes, stepText, onClose }) {
 
   return (
     <div style={{ position:"fixed", bottom:100, right:16, zIndex:200, background:"var(--card)",
-      border:"1px solid var(--border)", borderRadius:var_r(20), padding:20, width:180,
+      border:"1px solid var(--border)", borderRadius:"20px", padding:20, width:180,
       boxShadow:"var(--shadow)", animation:"scaleIn .25s both" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
         <span style={{ fontSize:12, color:"var(--text2)", fontWeight:500 }}>Minuteur</span>
@@ -296,10 +337,9 @@ function TimerWidget({ minutes, stepText, onClose }) {
     </div>
   );
 }
-function var_r(n) { return `${n}px`; }
 
 // ─── RECIPE CARD ──────────────────────────────────────────────────────────────
-function RecipeCard({ recipe, onClick, onFav, onDelete, onDuplicate, style }) {
+function RecipeCard({ recipe, onClick, onFav, onDelete, onDuplicate, onShare, style }) {
   const [longPress, setLongPress] = useState(false);
   const lpRef = useRef(null);
   const startPress = () => { lpRef.current = setTimeout(() => setLongPress(true), 500); };
@@ -321,6 +361,7 @@ function RecipeCard({ recipe, onClick, onFav, onDelete, onDuplicate, style }) {
               {[
                 { icon:"edit", label:"Modifier", action:() => { setLongPress(false); onClick(recipe, true); } },
                 { icon:"copy", label:"Dupliquer", action:() => { onDuplicate(recipe); setLongPress(false); } },
+                { icon:"share", label:"Partager", action:() => { onShare(recipe); setLongPress(false); } },
                 { icon:"heart", label:recipe.favorite ? "Retirer des favoris" : "Ajouter aux favoris", action:() => { onFav(recipe.id); setLongPress(false); } },
                 { icon:"trash", label:"Supprimer", action:() => { onDelete(recipe.id); setLongPress(false); }, danger:true },
               ].map(({ icon, label, action, danger }) => (
@@ -367,6 +408,8 @@ function IngredientRow({ ing, basePortions, currentPortions, onLongPress }) {
   const ratio = currentPortions / (basePortions || 1);
   const qty = ing.qty * ratio;
   const display = qty % 1 === 0 ? qty : +qty.toFixed(2);
+  // FIX #2 : pluriel conditionnel
+  const unitLabel = pluralize(display, ing.unit);
   const [pressed, setPressed] = useState(false);
   const lpRef = useRef(null);
   const start = () => { lpRef.current = setTimeout(() => { setPressed(false); onLongPress(ing); }, 600); };
@@ -377,9 +420,241 @@ function IngredientRow({ ing, basePortions, currentPortions, onLongPress }) {
         padding:"10px 0", borderBottom:"1px solid var(--border)", gap:8, userSelect:"none" }}>
       <span style={{ fontSize:14, color:"var(--text)" }}>{ing.name}</span>
       <span style={{ fontSize:14, fontWeight:600, color:"var(--accent)", whiteSpace:"nowrap" }}>
-        {display} <span style={{ fontWeight:400, color:"var(--text2)", fontSize:12 }}>{ing.unit}</span>
+        {display} <span style={{ fontWeight:400, color:"var(--text2)", fontSize:12 }}>{unitLabel}</span>
       </span>
     </div>
+  );
+}
+
+// ─── TEXT RECIPE PARSER ───────────────────────────────────────────────────────
+// FIX #5 : parse une recette en texte brut → objet structuré
+function parseTextRecipe(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return null;
+
+  const recipe = {
+    id: uid(), name: "", description: "", portions: 4, category: "Plat",
+    tags: [], favorite: false, image: null, ingredients: [], steps: [], createdAt: Date.now()
+  };
+
+  // Titre = première ligne non vide
+  recipe.name = lines[0].replace(/^#+\s*/, "").replace(/^recette\s*:?\s*/i, "").trim() || "Recette importée";
+
+  const ingKeywords = /ingr[eé]dients?|composition|il faut/i;
+  const stepKeywords = /pr[eé]paration|[eé]tapes?|instructions?|m[eé]thode|recette/i;
+  const portionKeywords = /portions?|personnes?|pers\.|parts?|quantit[eé]/i;
+
+  let mode = "none"; // "ingredients" | "steps"
+
+  const unitMap = { g:"g", kg:"g", ml:"mL", l:"mL", litre:"mL", litres:"mL",
+    "c. à café":"c. à café", "c.à.café":"c. à café", "cuillère à café":"c. à café",
+    "c. à soupe":"c. à soupe", "c.à.soupe":"c. à soupe", "cuillère à soupe":"c. à soupe",
+    "unité":"unités", "unités":"unités", pièce:"unités", pièces:"unités" };
+
+  const parseIngredient = (line) => {
+    // Nettoyage puces
+    const clean = line.replace(/^[-•*·]\s*/, "").trim();
+    // Regex : quantité optionnelle + unité optionnelle + nom
+    const m = clean.match(/^(\d+[.,]?\d*)\s*([a-zàéèêë. ]+?)?\s+(?:de\s+|d')?(.+)$/i);
+    if (m) {
+      const qty = parseFloat(m[1].replace(",", ".")) || 0;
+      const rawUnit = (m[2] || "").trim().toLowerCase();
+      const unit = unitMap[rawUnit] || (rawUnit ? rawUnit : "g");
+      const name = m[3].trim();
+      return { id: uid(), name, qty, unit };
+    }
+    // Pas de quantité trouvée → juste le nom
+    const nameClean = clean.replace(/^[-•*·]\s*/, "").trim();
+    if (nameClean) return { id: uid(), name: nameClean, qty: 1, unit: "unités" };
+    return null;
+  };
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Détection portions
+    if (portionKeywords.test(line)) {
+      const m = line.match(/(\d+)/);
+      if (m) recipe.portions = parseInt(m[1]);
+      continue;
+    }
+
+    // Détection section ingrédients
+    if (ingKeywords.test(line) && line.length < 50) { mode = "ingredients"; continue; }
+
+    // Détection section étapes
+    if (stepKeywords.test(line) && line.length < 50) { mode = "steps"; continue; }
+
+    // Lignes numérotées → probable étape
+    const stepMatch = line.match(/^(\d+)[.)]\s+(.+)/);
+    if (stepMatch && mode !== "ingredients") {
+      mode = "steps";
+      recipe.steps.push({ id: uid(), text: stepMatch[2].trim(), cookType: null, temp: null, flame: null, duration: 0 });
+      continue;
+    }
+
+    // Ligne puce → probable ingrédient si mode ingredients, sinon étape
+    if (/^[-•*·]/.test(line)) {
+      if (mode === "ingredients" || mode === "none") {
+        const ing = parseIngredient(line);
+        if (ing) recipe.ingredients.push(ing);
+      } else {
+        recipe.steps.push({ id: uid(), text: line.replace(/^[-•*·]\s*/, "").trim(), cookType: null, temp: null, flame: null, duration: 0 });
+      }
+      continue;
+    }
+
+    // Mode ingrédients : ligne simple
+    if (mode === "ingredients") {
+      const ing = parseIngredient(line);
+      if (ing) recipe.ingredients.push(ing);
+      continue;
+    }
+
+    // Mode étapes : ligne de texte
+    if (mode === "steps") {
+      // Détecter durée dans la ligne
+      const durMatch = line.match(/(\d+)\s*min/i);
+      const duration = durMatch ? parseInt(durMatch[1]) : 0;
+      // Détecter température
+      const tempMatch = line.match(/(\d{2,3})\s*°?[Cc]/);
+      const temp = tempMatch ? parseInt(tempMatch[1]) : null;
+      const cookType = temp ? "four" : null;
+      recipe.steps.push({ id: uid(), text: line, cookType, temp, flame: null, duration });
+    }
+  }
+
+  // Description = premier paragraphe s'il n'a pas été classifié
+  if (recipe.steps.length === 0 && recipe.ingredients.length === 0) {
+    recipe.description = lines.slice(1, 3).join(" ");
+  }
+
+  return recipe;
+}
+
+// ─── IMPORT TEXT MODAL ────────────────────────────────────────────────────────
+// FIX #5 : modal d'import de recette texte (coller ou fichier .txt)
+function ImportTextModal({ onImport, onClose }) {
+  const [text, setText] = useState("");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  const handleParse = () => {
+    setError("");
+    const parsed = parseTextRecipe(text);
+    if (!parsed || !parsed.name) { setError("Impossible de parser ce texte. Vérifiez le format."); return; }
+    setPreview(parsed);
+  };
+
+  const handleFile = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => { setText(ev.target.result); setPreview(null); };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const handleConfirm = () => {
+    if (preview) onImport(preview);
+  };
+
+  return (
+    <Sheet title="Importer une recette" onClose={onClose}
+      actions={<>
+        <button className="btn btn-outline" style={{ flex:1 }} onClick={onClose}>Annuler</button>
+        {!preview
+          ? <button className="btn btn-primary" style={{ flex:1 }} onClick={handleParse} disabled={!text.trim()}>
+              <Icon name="search" size={16} /> Analyser
+            </button>
+          : <button className="btn btn-primary" style={{ flex:1, background:"var(--green)" }} onClick={handleConfirm}>
+              <Icon name="check" size={16} /> Ajouter la recette
+            </button>}
+      </>}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ display:"flex", gap:8 }}>
+          <button className="btn btn-outline btn-sm" style={{ flex:1 }} onClick={() => fileRef.current.click()}>
+            <Icon name="file-text" size={14} /> Ouvrir un .txt
+          </button>
+          <input ref={fileRef} type="file" accept=".txt,text/plain" onChange={handleFile} style={{ display:"none" }} />
+        </div>
+        <div>
+          <div className="label">Ou coller votre recette ici</div>
+          <textarea className="input" value={text} onChange={e => { setText(e.target.value); setPreview(null); }}
+            placeholder={"Tarte aux pommes\n\nIngrédients\n- 4 pommes\n- 80g beurre\n\nPréparation\n1. Éplucher les pommes..."}
+            style={{ resize:"vertical", minHeight:160, fontFamily:"monospace", fontSize:12 }} />
+        </div>
+        {error && <p style={{ color:"var(--red)", fontSize:13 }}>{error}</p>}
+        {preview && (
+          <div className="card" style={{ padding:"14px 16px", background:"var(--accent3)", borderColor:"var(--accent)" }}>
+            <div style={{ fontSize:12, color:"var(--accent)", fontWeight:600, marginBottom:8, textTransform:"uppercase", letterSpacing:".06em" }}>
+              Aperçu de la recette détectée
+            </div>
+            <div style={{ fontFamily:"var(--font-display)", fontSize:18, fontWeight:500, marginBottom:6 }}>{preview.name}</div>
+            <div style={{ fontSize:13, color:"var(--text2)", display:"flex", gap:12, flexWrap:"wrap" }}>
+              <span>🥕 {preview.ingredients.length} ingrédient{preview.ingredients.length > 1 ? "s" : ""}</span>
+              <span>📋 {preview.steps.length} étape{preview.steps.length > 1 ? "s" : ""}</span>
+              <span>👥 {preview.portions} portions</span>
+            </div>
+            {preview.ingredients.length > 0 && (
+              <div style={{ marginTop:10 }}>
+                <div style={{ fontSize:12, color:"var(--text3)", marginBottom:4 }}>Ingrédients :</div>
+                {preview.ingredients.slice(0,5).map(i => (
+                  <div key={i.id} style={{ fontSize:13, color:"var(--text)", padding:"2px 0" }}>
+                    • {i.name} — {i.qty} {i.unit}
+                  </div>
+                ))}
+                {preview.ingredients.length > 5 && <div style={{ fontSize:12, color:"var(--text3)" }}>…et {preview.ingredients.length - 5} autres</div>}
+              </div>
+            )}
+          </div>
+        )}
+        <div style={{ fontSize:12, color:"var(--text3)", lineHeight:1.6 }}>
+          <strong>Format recommandé :</strong> Titre, puis section "Ingrédients" (un par ligne avec tiret),
+          puis section "Préparation" (étapes numérotées ou à tiret).
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+// ─── SHARE MODAL ──────────────────────────────────────────────────────────────
+// FIX #6 : partage d'une recette via code JSON encodé
+function ShareModal({ recipe, onClose, toast }) {
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(recipe))));
+  const shareText = `[RecipeVault] ${recipe.name}\n\n${encoded}`;
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareText);
+      setCopied(true);
+      toast("Code de partage copié !");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast("Impossible de copier");
+    }
+  };
+
+  return (
+    <Sheet title="Partager la recette" onClose={onClose}>
+      <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+        <p style={{ fontSize:14, color:"var(--text2)", lineHeight:1.6 }}>
+          Copiez ce code et envoyez-le. Le destinataire peut l'importer via "Importer une recette".
+        </p>
+        <div style={{ background:"var(--bg3)", borderRadius:"var(--r-sm)", padding:"14px 16px",
+          fontFamily:"monospace", fontSize:11, color:"var(--text2)", wordBreak:"break-all",
+          maxHeight:160, overflowY:"auto", lineHeight:1.5, border:"1px solid var(--border)" }}>
+          {shareText}
+        </div>
+        <button className="btn btn-primary" onClick={copy} style={{ width:"100%" }}>
+          <Icon name={copied ? "check" : "copy"} size={16} />
+          {copied ? "Copié !" : "Copier le code de partage"}
+        </button>
+        <div style={{ textAlign:"center", color:"var(--text3)", fontSize:12 }}>
+          💡 Le destinataire doit coller ce code dans "Importer une recette"
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -390,6 +665,8 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
   const [rec, setRec] = useState(initial ? { ...initial } : emptyRecipe);
   const [newTag, setNewTag] = useState("");
   const [errors, setErrors] = useState({});
+  // FIX #3 : valeurs intermédiaires de saisie pour les champs décimaux
+  const [qtyInputs, setQtyInputs] = useState({});
 
   const set = (k, v) => setRec(r => ({ ...r, [k]: v }));
 
@@ -399,9 +676,25 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
   const updIng = (id, k, v) => set("ingredients", rec.ingredients.map(i => i.id === id ? { ...i, [k]: v } : i));
   const delIng = (id) => set("ingredients", rec.ingredients.filter(i => i.id !== id));
 
-  // Steps
-  const addStep = () => set("steps", [...rec.steps,
-    { id: uid(), text:"", cookType:null, temp:null, flame:null, duration:0 }]);
+  // FIX #3 : gestion saisie décimale — on stocke la string intermédiaire séparément
+  const handleQtyChange = (id, raw) => {
+    setQtyInputs(prev => ({ ...prev, [id]: raw }));
+    const normalized = raw.replace(",", ".");
+    const n = parseFloat(normalized);
+    if (!isNaN(n)) updIng(id, "qty", n);
+  };
+  const getQtyDisplay = (ing) => {
+    if (qtyInputs[ing.id] !== undefined) return qtyInputs[ing.id];
+    return ing.qty === 0 ? "" : String(ing.qty);
+  };
+
+  // FIX #1 : addStep contextuel (insertion après l'index donné)
+  const addStepAfter = (afterIndex) => {
+    const newStep = { id: uid(), text:"", cookType:null, temp:null, flame:null, duration:0 };
+    const steps = [...rec.steps];
+    steps.splice(afterIndex + 1, 0, newStep);
+    set("steps", steps);
+  };
   const updStep = (id, k, v) => set("steps", rec.steps.map(s => s.id === id ? { ...s, [k]: v } : s));
   const delStep = (id) => set("steps", rec.steps.filter(s => s.id !== id));
 
@@ -503,11 +796,14 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
             {rec.ingredients.map((ing, idx) => (
-              <div key={ing.id} style={{ display:"grid", gridTemplateColumns:"1fr 72px 92px 36px", gap:6, alignItems:"center" }}>
+              <div key={ing.id} style={{ display:"grid", gridTemplateColumns:"1fr 80px 100px 36px", gap:6, alignItems:"center" }}>
                 <input className="input" placeholder={`Ingrédient ${idx+1}`} value={ing.name}
                   onChange={e => updIng(ing.id, "name", e.target.value)} style={{ fontSize:13, padding:"8px 10px" }} />
-                <input className="input" type="number" min={0} step="any" placeholder="Qté" value={ing.qty || ""}
-                  onChange={e => updIng(ing.id, "qty", parseFloat(e.target.value) || 0)} style={{ fontSize:13, padding:"8px 8px" }} />
+                {/* FIX #3 : champ texte (pas number) pour accepter "0.5", "1,25", etc. */}
+                <input className="input" inputMode="decimal" placeholder="Qté" value={getQtyDisplay(ing)}
+                  onChange={e => handleQtyChange(ing.id, e.target.value)}
+                  onBlur={() => setQtyInputs(prev => { const n = { ...prev }; delete n[ing.id]; return n; })}
+                  style={{ fontSize:13, padding:"8px 8px" }} />
                 <select className="input select" value={ing.unit} onChange={e => updIng(ing.id, "unit", e.target.value)}
                   style={{ fontSize:12, padding:"8px 6px" }}>
                   {UNITS.map(u => <option key={u}>{u}</option>)}
@@ -524,54 +820,75 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
         <div className="divider" />
 
         {/* Steps */}
+        {/* FIX #1 : bouton d'ajout contextuel après chaque étape */}
         <div>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
             <div className="label" style={{ marginBottom:0 }}>Étapes</div>
-            <button className="btn btn-outline btn-sm" onClick={addStep}><Icon name="plus" size={14}/> Ajouter</button>
+            {rec.steps.length === 0 && (
+              <button className="btn btn-outline btn-sm" onClick={() => addStepAfter(-1)}>
+                <Icon name="plus" size={14}/> Ajouter
+              </button>
+            )}
           </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
             {rec.steps.map((step, idx) => (
-              <div key={step.id} className="card" style={{ padding:"12px 14px" }}>
-                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-                  <span style={{ fontWeight:600, color:"var(--accent)", fontSize:13 }}>Étape {idx+1}</span>
-                  <button className="btn btn-ghost" style={{ padding:4, color:"var(--red)" }} onClick={() => delStep(step.id)}>
-                    <Icon name="trash" size={14} />
-                  </button>
+              <div key={step.id} className="step-wrapper" style={{ display:"flex", flexDirection:"column", gap:0 }}>
+                <div className="card" style={{ padding:"12px 14px" }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                    <span style={{ fontWeight:600, color:"var(--accent)", fontSize:13 }}>Étape {idx+1}</span>
+                    <button className="btn btn-ghost" style={{ padding:4, color:"var(--red)" }} onClick={() => delStep(step.id)}>
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </div>
+                  <textarea className="input" placeholder="Description de l'étape…" value={step.text}
+                    onChange={e => updStep(step.id, "text", e.target.value)}
+                    style={{ resize:"vertical", minHeight:60, marginBottom:8 }} />
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                    <div>
+                      <div className="label">Cuisson</div>
+                      <select className="input select" value={step.cookType || ""} onChange={e => updStep(step.id, "cookType", e.target.value || null)}
+                        style={{ fontSize:13 }}>
+                        <option value="">Aucune</option>
+                        <option value="four">🔥 Four</option>
+                        <option value="poele">🍳 Poêle</option>
+                        <option value="autre">💡 Autre</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div className="label">Durée (min)</div>
+                      <input className="input" type="number" min={0} value={step.duration || ""}
+                        onChange={e => updStep(step.id, "duration", +e.target.value || 0)}
+                        style={{ fontSize:13 }} />
+                    </div>
+                    {step.cookType === "four" && (
+                      <div>
+                        <div className="label">Température (°C)</div>
+                        <input className="input" type="number" step={5} value={step.temp || ""}
+                          onChange={e => updStep(step.id, "temp", +e.target.value || null)} style={{ fontSize:13 }} />
+                      </div>
+                    )}
+                    {step.cookType === "poele" && (
+                      <div>
+                        <div className="label">Feu (1–9)</div>
+                        <input className="input" type="number" min={1} max={9} value={step.flame || ""}
+                          onChange={e => updStep(step.id, "flame", +e.target.value || null)} style={{ fontSize:13 }} />
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <textarea className="input" placeholder="Description de l'étape…" value={step.text}
-                  onChange={e => updStep(step.id, "text", e.target.value)}
-                  style={{ resize:"vertical", minHeight:60, marginBottom:8 }} />
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                  <div>
-                    <div className="label">Cuisson</div>
-                    <select className="input select" value={step.cookType || ""} onChange={e => updStep(step.id, "cookType", e.target.value || null)}
-                      style={{ fontSize:13 }}>
-                      <option value="">Aucune</option>
-                      <option value="four">🔥 Four</option>
-                      <option value="poele">🍳 Poêle</option>
-                      <option value="autre">💡 Autre</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div className="label">Durée (min)</div>
-                    <input className="input" type="number" min={0} value={step.duration || ""}
-                      onChange={e => updStep(step.id, "duration", +e.target.value || 0)}
-                      style={{ fontSize:13 }} />
-                  </div>
-                  {step.cookType === "four" && (
-                    <div>
-                      <div className="label">Température (°C)</div>
-                      <input className="input" type="number" step={5} value={step.temp || ""}
-                        onChange={e => updStep(step.id, "temp", +e.target.value || null)} style={{ fontSize:13 }} />
-                    </div>
-                  )}
-                  {step.cookType === "poele" && (
-                    <div>
-                      <div className="label">Feu (1–9)</div>
-                      <input className="input" type="number" min={1} max={9} value={step.flame || ""}
-                        onChange={e => updStep(step.id, "flame", +e.target.value || null)} style={{ fontSize:13 }} />
-                    </div>
-                  )}
+                {/* FIX #1 : bouton d'insertion contextuel entre les étapes */}
+                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", minHeight:28 }}>
+                  <div style={{ flex:1, height:1, background:"var(--border)", opacity:.5 }} />
+                  <button
+                    className="step-insert-btn btn btn-outline btn-sm"
+                    style={{ padding:"3px 10px", fontSize:11, borderRadius:99, color:"var(--accent)", borderColor:"var(--accent)",
+                      background:"var(--accent3)", flexShrink:0, display:"flex", alignItems:"center", gap:4 }}
+                    onClick={() => addStepAfter(idx)}
+                    title="Insérer une étape ici"
+                  >
+                    <Icon name="plus" size={11} /> Étape
+                  </button>
+                  <div style={{ flex:1, height:1, background:"var(--border)", opacity:.5 }} />
                 </div>
               </div>
             ))}
@@ -585,44 +902,73 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
 }
 
 // ─── RECIPE DETAIL ────────────────────────────────────────────────────────────
-function RecipeDetail({ recipe: initialRecipe, allRecipes, onClose, onEdit, onAddToCart, toast }) {
+function RecipeDetail({ recipe: initialRecipe, allRecipes, onClose, onEdit, onAddToCart, toast, onShare }) {
   const [portions, setPortions] = useState(initialRecipe.portions);
   const [activeTimer, setActiveTimer] = useState(null);
   const [cookMode, setCookMode] = useState(false);
   const [cookStep, setCookStep] = useState(0);
   const recipe = allRecipes.find(r => r.id === initialRecipe.id) || initialRecipe;
 
-  const cookTypes = { four:"🔥 Four", poele:"🍳 Poêle", autre:"💡 Autre" };
-
+  // FIX #8 : mode cuisine amélioré
   if (cookMode) {
     const step = recipe.steps[cookStep];
+    const isFirst = cookStep === 0;
+    const isLast = cookStep === recipe.steps.length - 1;
+    const cookChip = formatCookChip(step);
+
     return (
       <div style={{ position:"fixed", inset:0, background:"var(--bg)", zIndex:50, display:"flex",
-        flexDirection:"column", padding:0 }}>
-        <div style={{ padding:"16px 20px 0", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-          <button className="btn btn-ghost" onClick={() => setCookMode(false)} style={{ gap:6 }}>
-            <Icon name="close" size={18} /> Quitter
-          </button>
-          <span style={{ fontFamily:"var(--font-display)", fontSize:16 }}>{recipe.name}</span>
-          <span style={{ fontSize:13, color:"var(--text2)" }}>{cookStep+1}/{recipe.steps.length}</span>
-        </div>
-        <div style={{ flex:1, display:"flex", flexDirection:"column", padding:"20px", gap:16, overflowY:"auto" }}>
-          <div style={{ background:"var(--accent)", color:"#fff", width:44, height:44,
-            borderRadius:14, display:"flex", alignItems:"center", justifyContent:"center",
-            fontFamily:"var(--font-display)", fontSize:22, fontWeight:500 }}>{cookStep+1}</div>
-          {step.cookType && (
-            <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-              <span className="chip" style={{ background:"var(--accent3)", borderColor:"var(--accent)", color:"var(--accent)" }}>
-                {cookTypes[step.cookType]}
-                {step.cookType === "four" && step.temp ? ` — ${step.temp}°C` : ""}
-                {step.cookType === "poele" && step.flame ? ` — Feu ${step.flame}/9` : ""}
-              </span>
-              {step.duration > 0 && <span className="chip">{step.duration} min</span>}
+        flexDirection:"column" }}>
+
+        {/* Header mode cuisine — hiérarchie claire */}
+        <div style={{ padding:"48px 20px 16px", background:"var(--bg2)", borderBottom:"1px solid var(--border)", flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <h1 style={{ fontFamily:"var(--font-display)", fontSize:18, fontWeight:500, color:"var(--text)", flex:1,
+              overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              {recipe.name}
+            </h1>
+            <button className="btn btn-ghost btn-sm" onClick={() => setCookMode(false)}
+              style={{ color:"var(--text3)", flexShrink:0, borderRadius:99, border:"1px solid var(--border)", padding:"5px 12px" }}>
+              <Icon name="close" size={14} /> Quitter
+            </button>
+          </div>
+          {/* Pagination */}
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:12, color:"var(--text3)", fontWeight:500 }}>
+              Étape {cookStep + 1} / {recipe.steps.length}
+            </span>
+            <div style={{ flex:1, height:4, background:"var(--border)", borderRadius:4, overflow:"hidden" }}>
+              <div style={{ height:"100%", background:"var(--accent)", borderRadius:4, transition:"width .3s",
+                width:`${((cookStep + 1) / recipe.steps.length) * 100}%` }} />
             </div>
-          )}
-          <p style={{ fontFamily:"var(--font-display)", fontSize:22, fontWeight:300, lineHeight:1.6, color:"var(--text)" }}>
+          </div>
+        </div>
+
+        {/* Contenu */}
+        <div style={{ flex:1, display:"flex", flexDirection:"column", padding:"24px 20px 16px", gap:16, overflowY:"auto" }}>
+          {/* Numéro d'étape + chips */}
+          <div style={{ display:"flex", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+            <div style={{ width:44, height:44, borderRadius:14, background:"var(--accent)", color:"#fff",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontFamily:"var(--font-display)", fontSize:22, fontWeight:500, flexShrink:0 }}>{cookStep+1}</div>
+            {cookChip && (
+              <span className="chip" style={{ background:"var(--accent3)", borderColor:"var(--accent)", color:"var(--accent)", fontSize:14, padding:"6px 12px" }}>
+                {cookChip}
+              </span>
+            )}
+            {step.duration > 0 && (
+              <span className="chip" style={{ fontSize:13 }}>
+                <Icon name="timer" size={13} /> {step.duration} min
+              </span>
+            )}
+          </div>
+
+          {/* Texte de l'étape */}
+          <p style={{ fontFamily:"var(--font-display)", fontSize:22, fontWeight:300, lineHeight:1.65, color:"var(--text)" }}>
             {step.text}
           </p>
+
+          {/* Minuteur */}
           {step.duration > 0 && (
             <button className="btn btn-primary" style={{ alignSelf:"flex-start" }}
               onClick={() => setActiveTimer({ minutes: step.duration, text: step.text })}>
@@ -630,14 +976,16 @@ function RecipeDetail({ recipe: initialRecipe, allRecipes, onClose, onEdit, onAd
             </button>
           )}
         </div>
-        <div style={{ padding:"16px 20px 32px", display:"flex", gap:12, borderTop:"1px solid var(--border)" }}>
-          <button className="btn btn-outline" style={{ flex:1 }} disabled={cookStep === 0}
+
+        {/* Navigation bas */}
+        <div style={{ padding:"12px 20px 36px", display:"flex", gap:10, borderTop:"1px solid var(--border)", flexShrink:0 }}>
+          <button className="btn btn-outline" style={{ flex:1 }} disabled={isFirst}
             onClick={() => setCookStep(s => s-1)}>
-            <Icon name="back" size={16} /> Précédent
+            <Icon name="back" size={16} /> Préc.
           </button>
-          {cookStep < recipe.steps.length - 1
+          {!isLast
             ? <button className="btn btn-primary" style={{ flex:1 }} onClick={() => setCookStep(s => s+1)}>
-                Suivant <Icon name="back" size={16} style={{ transform:"rotate(180deg)" }} />
+                Suiv. <Icon name="back" size={16} style={{ transform:"rotate(180deg)" }} />
               </button>
             : <button className="btn" style={{ flex:1, background:"var(--green)", color:"#fff" }}
                 onClick={() => setCookMode(false)}>
@@ -666,11 +1014,19 @@ function RecipeDetail({ recipe: initialRecipe, allRecipes, onClose, onEdit, onAd
             backdropFilter:"blur(8px)", borderRadius:12, padding:"8px 14px" }}>
           <Icon name="back" size={16} /> Retour
         </button>
-        <button className="btn" onClick={() => onEdit(recipe)}
-          style={{ position:"absolute", top:16, right:16, background:"rgba(0,0,0,.4)", color:"#fff",
-            backdropFilter:"blur(8px)", borderRadius:12, padding:"8px 14px" }}>
-          <Icon name="edit" size={16} />
-        </button>
+        <div style={{ position:"absolute", top:16, right:16, display:"flex", gap:8 }}>
+          {/* FIX #6 : bouton Partager dans le détail */}
+          <button className="btn" onClick={() => onShare(recipe)}
+            style={{ background:"rgba(0,0,0,.4)", color:"#fff",
+              backdropFilter:"blur(8px)", borderRadius:12, padding:"8px 14px" }}>
+            <Icon name="share" size={16} />
+          </button>
+          <button className="btn" onClick={() => onEdit(recipe)}
+            style={{ background:"rgba(0,0,0,.4)", color:"#fff",
+              backdropFilter:"blur(8px)", borderRadius:12, padding:"8px 14px" }}>
+            <Icon name="edit" size={16} />
+          </button>
+        </div>
       </div>
 
       <div style={{ padding:"20px 20px 120px" }}>
@@ -726,39 +1082,41 @@ function RecipeDetail({ recipe: initialRecipe, allRecipes, onClose, onEdit, onAd
           <div>
             <h2 style={{ fontFamily:"var(--font-display)", fontSize:19, fontWeight:500, marginBottom:12 }}>Préparation</h2>
             <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-              {recipe.steps.map((step, idx) => (
-                <div key={step.id} className="card" style={{ padding:"14px 16px" }}>
-                  <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
-                    <div style={{ width:28, height:28, borderRadius:9, background:"var(--accent)", color:"#fff",
-                      display:"flex", alignItems:"center", justifyContent:"center",
-                      fontFamily:"var(--font-display)", fontWeight:500, fontSize:14, flexShrink:0 }}>{idx+1}</div>
-                    <div style={{ flex:1 }}>
-                      {step.cookType && (
-                        <div style={{ display:"flex", gap:8, marginBottom:6, flexWrap:"wrap" }}>
-                          <span className="chip" style={{ color:"var(--accent)", borderColor:"var(--accent)", background:"var(--accent3)" }}>
-                            {cookTypes[step.cookType]}
-                            {step.cookType === "four" && step.temp ? ` ${step.temp}°C` : ""}
-                            {step.cookType === "poele" && step.flame ? ` Feu ${step.flame}/9` : ""}
-                          </span>
-                        </div>
-                      )}
-                      <p style={{ fontSize:14, lineHeight:1.6, color:"var(--text)" }}>{step.text}</p>
-                      {step.duration > 0 && (
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:10 }}>
-                          <span style={{ fontSize:13, color:"var(--text2)" }}>
-                            <Icon name="timer" size={13} style={{ verticalAlign:"middle", marginRight:4 }} />
-                            {step.duration} min
-                          </span>
-                          <button className="btn btn-outline btn-sm"
-                            onClick={() => setActiveTimer({ minutes: step.duration, text: step.text })}>
-                            <Icon name="play" size={13} /> Minuteur
-                          </button>
-                        </div>
-                      )}
+              {recipe.steps.map((step, idx) => {
+                const cookChip = formatCookChip(step);
+                return (
+                  <div key={step.id} className="card" style={{ padding:"14px 16px" }}>
+                    <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+                      <div style={{ width:28, height:28, borderRadius:9, background:"var(--accent)", color:"#fff",
+                        display:"flex", alignItems:"center", justifyContent:"center",
+                        fontFamily:"var(--font-display)", fontWeight:500, fontSize:14, flexShrink:0 }}>{idx+1}</div>
+                      <div style={{ flex:1 }}>
+                        {/* FIX #7 : affichage compact pour la poêle */}
+                        {cookChip && (
+                          <div style={{ display:"flex", gap:8, marginBottom:6, flexWrap:"wrap" }}>
+                            <span className="chip" style={{ color:"var(--accent)", borderColor:"var(--accent)", background:"var(--accent3)" }}>
+                              {cookChip}
+                            </span>
+                          </div>
+                        )}
+                        <p style={{ fontSize:14, lineHeight:1.6, color:"var(--text)" }}>{step.text}</p>
+                        {step.duration > 0 && (
+                          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:10 }}>
+                            <span style={{ fontSize:13, color:"var(--text2)" }}>
+                              <Icon name="timer" size={13} style={{ verticalAlign:"middle", marginRight:4 }} />
+                              {step.duration} min
+                            </span>
+                            <button className="btn btn-outline btn-sm"
+                              onClick={() => setActiveTimer({ minutes: step.duration, text: step.text })}>
+                              <Icon name="play" size={13} /> Minuteur
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -837,7 +1195,7 @@ function ShoppingList({ items, onUpdate }) {
                   </span>}
             </div>
             <button className="btn btn-ghost" style={{ padding:4, color:"var(--text3)", borderRadius:6 }}
-              onClick={() => remove(item.id)}><Icon name="trash" size={14} /></button>
+              onClick={() => remove(item.id)}><Icon name="trash" size={14}/></button>
           </div>
         ))}
       </div>
@@ -865,7 +1223,7 @@ function Settings({ dark, setDark, recipes, onImport, toast }) {
     reader.onload = (ev) => {
       try {
         const { recipes: imported } = JSON.parse(ev.target.result);
-        if (Array.isArray(imported)) { onImport(imported); toast(`${imported.length} recettes importées`); }
+        if (Array.isArray(imported)) { onImport(imported); toast(`${imported.length} recette${imported.length > 1 ? "s" : ""} importée${imported.length > 1 ? "s" : ""}`); }
         else toast("Format invalide");
       } catch { toast("Erreur d'import"); }
     };
@@ -926,9 +1284,13 @@ export default function App() {
   const [filterCat, setFilterCat] = useState("Toutes");
   const [filterFav, setFilterFav] = useState(false);
   const [detail, setDetail] = useState(null);
-  const [editor, setEditor] = useState(null); // null | { recipe: null|obj }
+  const [editor, setEditor] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [toast, setToast] = useState(null);
+  // FIX #5 : modal import texte
+  const [importText, setImportText] = useState(false);
+  // FIX #6 : modal partage
+  const [shareRecipe, setShareRecipe] = useState(null);
 
   useEffect(() => { DB.set("recipes", recipes); }, [recipes]);
   useEffect(() => { DB.set("cart", cart); }, [cart]);
@@ -966,6 +1328,35 @@ export default function App() {
     });
   };
 
+  // FIX #5 : import depuis le parser texte (y compris code de partage JSON encodé)
+  const handleTextImport = (parsed) => {
+    // Détection code de partage (base64 JSON)
+    setRecipes(rs => {
+      const ids = new Set(rs.map(r => r.id));
+      if (ids.has(parsed.id)) {
+        const withNew = [...rs, { ...parsed, id: uid(), createdAt: Date.now() }];
+        return withNew;
+      }
+      return [parsed, ...rs];
+    });
+    setImportText(false);
+    showToast(`"${parsed.name}" importée !`);
+  };
+
+  // FIX #6 : partage — détecte si le texte collé est un code RecipeVault
+  // (géré dans ImportTextModal via le champ texte — le parser détecte le préfixe "[RecipeVault]")
+  const handleShareCodeImport = (text) => {
+    // Si le texte contient le marqueur RecipeVault, on tente de décoder
+    const match = text.match(/\[RecipeVault\].*\n+([A-Za-z0-9+/=]+)$/s);
+    if (match) {
+      try {
+        const decoded = JSON.parse(decodeURIComponent(escape(atob(match[1].trim()))));
+        if (decoded && decoded.name) return decoded;
+      } catch {}
+    }
+    return null;
+  };
+
   const filtered = recipes.filter(r => {
     const q = search.toLowerCase();
     const matchSearch = !q || r.name.toLowerCase().includes(q) || r.tags?.some(t => t.toLowerCase().includes(q));
@@ -1000,6 +1391,10 @@ export default function App() {
           <span className={`chip ${filterFav ? "active" : ""}`} onClick={() => setFilterFav(!filterFav)}>
             <Icon name="heart-fill" size={11} style={{ fill: filterFav ? "#fff" : "none" }} /> Favoris
           </span>
+          {/* FIX #5 : bouton importer texte dans la barre filtres */}
+          <span className="chip" onClick={() => setImportText(true)} style={{ borderColor:"var(--accent)", color:"var(--accent)" }}>
+            <Icon name="file-text" size={11} /> Importer
+          </span>
           {cats.map(c => (
             <span key={c} className={`chip ${filterCat === c ? "active" : ""}`}
               onClick={() => setFilterCat(c)}>{c}</span>
@@ -1019,7 +1414,8 @@ export default function App() {
             {filtered.map((r, i) => (
               <RecipeCard key={r.id} recipe={r} style={{ animationDelay:`${i*.04}s` }}
                 onClick={(r, editMode) => editMode ? setEditor({ recipe: r }) : setDetail(r)}
-                onFav={toggleFav} onDelete={(id) => setConfirm(id)} onDuplicate={duplicateRecipe} />
+                onFav={toggleFav} onDelete={(id) => setConfirm(id)} onDuplicate={duplicateRecipe}
+                onShare={(r) => setShareRecipe(r)} />
             ))}
           </div>
         </div>
@@ -1102,13 +1498,25 @@ export default function App() {
         {detail && (
           <RecipeDetail recipe={detail} allRecipes={recipes} onClose={() => setDetail(null)}
             onEdit={(r) => { setDetail(null); setEditor({ recipe: r }); }}
-            onAddToCart={addToCart} toast={showToast} />
+            onAddToCart={addToCart} toast={showToast}
+            onShare={(r) => setShareRecipe(r)} />
         )}
         {editor && (
           <RecipeEditor recipe={editor.recipe} onSave={saveRecipe} onClose={() => setEditor(null)} />
         )}
         {confirm && (
           <Confirm msg="Supprimer cette recette ?" onOk={() => deleteRecipe(confirm)} onCancel={() => setConfirm(null)} />
+        )}
+        {/* FIX #5 : modal import texte */}
+        {importText && (
+          <ImportTextModal
+            onImport={handleTextImport}
+            onClose={() => setImportText(false)}
+          />
+        )}
+        {/* FIX #6 : modal partage */}
+        {shareRecipe && (
+          <ShareModal recipe={shareRecipe} onClose={() => setShareRecipe(null)} toast={showToast} />
         )}
         {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
       </div>
