@@ -23,10 +23,21 @@ const pluralize = (qty, unit) => {
 };
 
 // ─── DECIMAL PARSE ────────────────────────────────────────────────────────────
-// FIX #3 : conversion string → number sécurisée (accepte virgule ET point)
+// Accepte virgule, point, fractions (1/2, 3/4), et zéros initiaux (0.5)
 const parseDecimal = (str) => {
   if (str === "" || str === undefined || str === null) return "";
-  const normalized = String(str).replace(",", ".");
+  const s = String(str).trim();
+  // Fraction : e.g. "1/2", "3/4", "1 1/2"
+  const fractionMatch = s.match(/^(\d+)\s+(\d+)\/(\d+)$|^(\d+)\/(\d+)$/);
+  if (fractionMatch) {
+    if (fractionMatch[1] !== undefined) {
+      // Mixed: "1 1/2"
+      return parseInt(fractionMatch[1]) + parseInt(fractionMatch[2]) / parseInt(fractionMatch[3]);
+    } else {
+      return parseInt(fractionMatch[4]) / parseInt(fractionMatch[5]);
+    }
+  }
+  const normalized = s.replace(",", ".");
   const n = parseFloat(normalized);
   return isNaN(n) ? "" : n;
 };
@@ -145,14 +156,13 @@ const UNITS = ["g", "mL", "unités", "c. à café", "c. à soupe"];
 const CATEGORIES = ["Entrée", "Plat", "Dessert", "Boisson", "Snack", "Petit-déjeuner", "Sauce", "Autre"];
 
 // ─── COOK TYPE LABELS ─────────────────────────────────────────────────────────
-// FIX #7 : format compact pour la poêle : 🔥 4/9 au lieu de "Poêle Feu 4/9"
 const formatCookChip = (step) => {
   if (!step.cookType) return null;
   if (step.cookType === "four") {
     return step.temp ? `🔥 Four — ${step.temp}°C` : "🔥 Four";
   }
   if (step.cookType === "poele") {
-    return step.flame ? `🔥 ${step.flame}/9` : "🔥 Poêle";
+    return step.flame ? `🔥 ${step.flame}/9` : "🔥 Plaque de cuisson";
   }
   return "💡 Autre";
 };
@@ -294,37 +304,109 @@ function Confirm({ msg, onOk, onCancel }) {
 function TimerWidget({ minutes, stepText, onClose }) {
   const total = minutes * 60;
   const timer = useTimer(total);
+  const [minimized, setMinimized] = useState(false);
+  const audioCtxRef = useRef(null);
+
   useEffect(() => { timer.reset(total); }, [total]);
+
   const progress = total > 0 ? (timer.seconds / total) * 100 : 0;
   const r = 52, circ = 2 * Math.PI * r;
 
+  const playAlarm = useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = ctx;
+      const playBeep = (t, freq, dur) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = "sine"; osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.5, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.start(t); osc.stop(t + dur);
+      };
+      playBeep(ctx.currentTime, 880, 0.18);
+      playBeep(ctx.currentTime + 0.22, 1100, 0.18);
+      playBeep(ctx.currentTime + 0.44, 1320, 0.35);
+    } catch (e) {}
+  }, []);
+
   useEffect(() => {
-    if (timer.finished && "Notification" in window && Notification.permission === "granted")
-      new Notification("⏰ Minuteur terminé !", { body: stepText });
-  }, [timer.finished]);
+    if (timer.finished) {
+      playAlarm();
+      if ("Notification" in window && Notification.permission === "granted")
+        new Notification("⏰ Minuteur terminé !", { body: stepText });
+    }
+  }, [timer.finished, playAlarm]);
+
+  // Minimized floating pill
+  if (minimized) {
+    return (
+      <div onClick={() => setMinimized(false)} style={{
+        position: "fixed", bottom: 100, right: 16, zIndex: 200,
+        background: timer.finished ? "var(--green)" : timer.running ? "var(--accent)" : "var(--card)",
+        color: timer.finished || timer.running ? "#fff" : "var(--text)",
+        border: "1px solid var(--border)", borderRadius: 99,
+        padding: "10px 16px", display: "flex", alignItems: "center", gap: 8,
+        boxShadow: "var(--shadow)", cursor: "pointer", animation: "scaleIn .2s both", transition: "background .3s",
+      }}>
+        <Icon name="timer" size={16} />
+        <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+          {timer.fmt(timer.seconds)}
+        </span>
+        {timer.finished && <span style={{ fontSize: 12 }}>✓</span>}
+      </div>
+    );
+  }
 
   return (
     <div style={{ position:"fixed", bottom:100, right:16, zIndex:200, background:"var(--card)",
-      border:"1px solid var(--border)", borderRadius:"20px", padding:20, width:180,
+      border:"1px solid var(--border)", borderRadius:"20px", padding:20, width:200,
       boxShadow:"var(--shadow)", animation:"scaleIn .25s both" }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
         <span style={{ fontSize:12, color:"var(--text2)", fontWeight:500 }}>Minuteur</span>
-        <button className="btn btn-ghost" style={{ padding:2, borderRadius:6 }} onClick={onClose}>
-          <Icon name="close" size={14} />
-        </button>
+        <div style={{ display:"flex", gap:4 }}>
+          <button className="btn btn-ghost" style={{ padding:2, borderRadius:6 }}
+            onClick={() => setMinimized(true)} title="Réduire">
+            <Icon name="chevdown" size={14} />
+          </button>
+          <button className="btn btn-ghost" style={{ padding:2, borderRadius:6 }} onClick={onClose}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
       </div>
       <div style={{ display:"flex", justifyContent:"center", margin:"12px 0" }}>
-        <svg width={120} height={120} style={{ transform:"rotate(-90deg)" }}>
-          <circle cx={60} cy={60} r={r} fill="none" stroke="var(--border)" strokeWidth={6} />
-          <circle cx={60} cy={60} r={r} fill="none" stroke={timer.finished ? "var(--green)" : "var(--accent)"}
-            strokeWidth={6} strokeDasharray={circ} strokeDashoffset={circ * (1 - progress / 100)}
-            strokeLinecap="round" style={{ transition:"stroke-dashoffset .5s", animation: timer.running ? "timerPulse 1s infinite" : "none" }} />
-          <text x={60} y={60} textAnchor="middle" dominantBaseline="middle"
-            style={{ fontSize:22, fontWeight:700, fontFamily:"var(--font-body)", fill:"var(--text)", transform:"rotate(90deg)", transformOrigin:"60px 60px" }}>
+        <svg width={130} height={130}>
+          <circle cx={65} cy={65} r={r} fill="none" stroke="var(--border)" strokeWidth={7}
+            transform="rotate(-90 65 65)" />
+          <circle cx={65} cy={65} r={r} fill="none"
+            stroke={timer.finished ? "var(--green)" : "var(--accent)"}
+            strokeWidth={7} strokeDasharray={circ}
+            strokeDashoffset={circ * (1 - progress / 100)}
+            strokeLinecap="round" transform="rotate(-90 65 65)"
+            style={{ transition:"stroke-dashoffset 0.9s linear, stroke 0.4s" }} />
+          {timer.running && !timer.finished && (
+            <circle
+              cx={65 + r * Math.cos((2 * Math.PI * progress / 100) - Math.PI / 2)}
+              cy={65 + r * Math.sin((2 * Math.PI * progress / 100) - Math.PI / 2)}
+              r={5} fill="var(--accent)" style={{ transition:"all 0.9s linear" }} />
+          )}
+          <text x={65} y={61} textAnchor="middle" dominantBaseline="middle"
+            style={{ fontSize:22, fontWeight:700, fontFamily:"var(--font-body)", fill:"var(--text)", fontVariantNumeric:"tabular-nums" }}>
             {timer.fmt(timer.seconds)}
+          </text>
+          <text x={65} y={81} textAnchor="middle" dominantBaseline="middle"
+            style={{ fontSize:10, fill:"var(--text3)", fontFamily:"var(--font-body)" }}>
+            {timer.finished ? "Terminé !" : timer.running ? "en cours" : "en pause"}
           </text>
         </svg>
       </div>
+      {stepText && (
+        <p style={{ fontSize:11, color:"var(--text3)", textAlign:"center", marginBottom:10,
+          overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>
+          {stepText}
+        </p>
+      )}
       <div style={{ display:"flex", gap:8 }}>
         {!timer.running && !timer.finished &&
           <button className="btn btn-primary" style={{ flex:1 }} onClick={timer.start}><Icon name="play" size={14} /> Démarrer</button>}
@@ -489,7 +571,13 @@ function parseTextRecipe(text) {
     const stepMatch = line.match(/^(\d+)[.)]\s+(.+)/);
     if (stepMatch && mode !== "ingredients") {
       mode = "steps";
-      recipe.steps.push({ id: uid(), text: stepMatch[2].trim(), cookType: null, temp: null, flame: null, duration: 0 });
+      const stepText = stepMatch[2].trim();
+      const rangeMatch = stepText.match(/(\d+)\s*(?:à|a|-)\s*(\d+)\s*min/i);
+      const singleMatch = !rangeMatch && stepText.match(/(\d+)\s*min/i);
+      const stepDuration = rangeMatch ? parseInt(rangeMatch[1]) : singleMatch ? parseInt(singleMatch[1]) : 0;
+      const stepTempMatch = stepText.match(/(\d{2,3})\s*°?[Cc]/);
+      const stepTemp = stepTempMatch ? parseInt(stepTempMatch[1]) : null;
+      recipe.steps.push({ id: uid(), text: stepText, cookType: stepTemp ? "four" : null, temp: stepTemp, flame: null, duration: stepDuration });
       continue;
     }
 
@@ -513,9 +601,10 @@ function parseTextRecipe(text) {
 
     // Mode étapes : ligne de texte
     if (mode === "steps") {
-      // Détecter durée dans la ligne
-      const durMatch = line.match(/(\d+)\s*min/i);
-      const duration = durMatch ? parseInt(durMatch[1]) : 0;
+      // Détecter durée : intervalle "15 à 20 min" → valeur min (15), ou simple "20 min"
+      const rangeMatch = line.match(/(\d+)\s*(?:à|a|-)\s*(\d+)\s*min/i);
+      const singleMatch = !rangeMatch && line.match(/(\d+)\s*min/i);
+      const duration = rangeMatch ? parseInt(rangeMatch[1]) : singleMatch ? parseInt(singleMatch[1]) : 0;
       // Détecter température
       const tempMatch = line.match(/(\d{2,3})\s*°?[Cc]/);
       const temp = tempMatch ? parseInt(tempMatch[1]) : null;
@@ -676,12 +765,13 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
   const updIng = (id, k, v) => set("ingredients", rec.ingredients.map(i => i.id === id ? { ...i, [k]: v } : i));
   const delIng = (id) => set("ingredients", rec.ingredients.filter(i => i.id !== id));
 
-  // FIX #3 : gestion saisie décimale — on stocke la string intermédiaire séparément
+  // Gestion saisie décimale et fractions — on stocke la string intermédiaire séparément
   const handleQtyChange = (id, raw) => {
     setQtyInputs(prev => ({ ...prev, [id]: raw }));
-    const normalized = raw.replace(",", ".");
-    const n = parseFloat(normalized);
-    if (!isNaN(n)) updIng(id, "qty", n);
+    // Accept fractions like 1/2, 3/4, 1 1/2 and decimals 0.5, 1,25
+    const parsed = parseDecimal(raw);
+    if (parsed !== "" && !isNaN(parsed)) updIng(id, "qty", parsed);
+    else if (raw === "" || raw === "0") updIng(id, "qty", 0);
   };
   const getQtyDisplay = (ing) => {
     if (qtyInputs[ing.id] !== undefined) return qtyInputs[ing.id];
@@ -754,8 +844,19 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <div>
             <div className="label">Portions</div>
-            <input className="input" type="number" min={1} value={rec.portions}
-              onChange={e => set("portions", +e.target.value || 1)} />
+            <input className="input" type="text" inputMode="numeric" min={1}
+              value={rec.portions === 0 ? "" : rec.portions}
+              onChange={e => {
+                const raw = e.target.value;
+                if (raw === "" || raw === "0") { set("portions", 0); return; }
+                const n = parseInt(raw, 10);
+                if (!isNaN(n) && n >= 1) set("portions", n);
+              }}
+              onBlur={e => {
+                const n = parseInt(e.target.value, 10);
+                set("portions", (!isNaN(n) && n >= 1) ? n : 1);
+              }}
+            />
           </div>
           <div>
             <div className="label">Catégorie</div>
@@ -799,15 +900,15 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
               <div key={ing.id} style={{ display:"grid", gridTemplateColumns:"1fr 80px 100px 36px", gap:6, alignItems:"center" }}>
                 <input className="input" placeholder={`Ingrédient ${idx+1}`} value={ing.name}
                   onChange={e => updIng(ing.id, "name", e.target.value)} style={{ fontSize:13, padding:"8px 10px" }} />
-                {/* FIX #3 : champ texte (pas number) pour accepter "0.5", "1,25", etc. */}
+                {/* Champ texte pour accepter 0.5, 1/2, 1,25, etc. */}
                 <input className="input" inputMode="decimal" placeholder="Qté" value={getQtyDisplay(ing)}
                   onChange={e => handleQtyChange(ing.id, e.target.value)}
                   onBlur={() => setQtyInputs(prev => { const n = { ...prev }; delete n[ing.id]; return n; })}
                   style={{ fontSize:13, padding:"8px 8px" }} />
-                <select className="input select" value={ing.unit} onChange={e => updIng(ing.id, "unit", e.target.value)}
-                  style={{ fontSize:12, padding:"8px 6px" }}>
-                  {UNITS.map(u => <option key={u}>{u}</option>)}
-                </select>
+                {/* Champ libre pour l'unité */}
+                <input className="input" placeholder="Unité" value={ing.unit}
+                  onChange={e => updIng(ing.id, "unit", e.target.value)}
+                  style={{ fontSize:12, padding:"8px 6px" }} />
                 <button className="btn btn-ghost" style={{ padding:6, color:"var(--red)", borderRadius:8 }}
                   onClick={() => delIng(ing.id)}><Icon name="trash" size={14}/></button>
               </div>
@@ -820,15 +921,9 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
         <div className="divider" />
 
         {/* Steps */}
-        {/* FIX #1 : bouton d'ajout contextuel après chaque étape */}
         <div>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+          <div style={{ display:"flex", alignItems:"center", marginBottom:10 }}>
             <div className="label" style={{ marginBottom:0 }}>Étapes</div>
-            {rec.steps.length === 0 && (
-              <button className="btn btn-outline btn-sm" onClick={() => addStepAfter(-1)}>
-                <Icon name="plus" size={14}/> Ajouter
-              </button>
-            )}
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
             {rec.steps.map((step, idx) => (
@@ -850,7 +945,7 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
                         style={{ fontSize:13 }}>
                         <option value="">Aucune</option>
                         <option value="four">🔥 Four</option>
-                        <option value="poele">🍳 Poêle</option>
+                        <option value="poele">🍳 Plaque de cuisson</option>
                         <option value="autre">💡 Autre</option>
                       </select>
                     </div>
@@ -876,25 +971,35 @@ function RecipeEditor({ recipe: initial, onSave, onClose }) {
                     )}
                   </div>
                 </div>
-                {/* FIX #1 : bouton d'insertion contextuel entre les étapes */}
-                <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", minHeight:28 }}>
-                  <div style={{ flex:1, height:1, background:"var(--border)", opacity:.5 }} />
-                  <button
-                    className="step-insert-btn btn btn-outline btn-sm"
-                    style={{ padding:"3px 10px", fontSize:11, borderRadius:99, color:"var(--accent)", borderColor:"var(--accent)",
-                      background:"var(--accent3)", flexShrink:0, display:"flex", alignItems:"center", gap:4 }}
-                    onClick={() => addStepAfter(idx)}
-                    title="Insérer une étape ici"
-                  >
-                    <Icon name="plus" size={11} /> Étape
-                  </button>
-                  <div style={{ flex:1, height:1, background:"var(--border)", opacity:.5 }} />
-                </div>
+                {/* Bouton d'insertion entre les étapes — uniquement entre deux étapes, jamais après la dernière */}
+                {idx < rec.steps.length - 1 && (
+                  <div style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 0", minHeight:28 }}>
+                    <div style={{ flex:1, height:1, background:"var(--border)", opacity:.5 }} />
+                    <button
+                      className="step-insert-btn btn btn-outline btn-sm"
+                      style={{ padding:"3px 10px", fontSize:11, borderRadius:99, color:"var(--accent)", borderColor:"var(--accent)",
+                        background:"var(--accent3)", flexShrink:0, display:"flex", alignItems:"center", gap:4 }}
+                      onClick={() => addStepAfter(idx)}
+                      title="Insérer une étape ici"
+                    >
+                      <Icon name="plus" size={11} /> Étape
+                    </button>
+                    <div style={{ flex:1, height:1, background:"var(--border)", opacity:.5 }} />
+                  </div>
+                )}
               </div>
             ))}
             {rec.steps.length === 0 &&
-              <p style={{ fontSize:13, color:"var(--text3)", textAlign:"center", padding:"12px 0" }}>Aucune étape — cliquez sur Ajouter</p>}
+              <p style={{ fontSize:13, color:"var(--text3)", textAlign:"center", padding:"12px 0" }}>Aucune étape pour l'instant</p>}
           </div>
+          {/* Bouton toujours positionné APRÈS la dernière étape */}
+          <button
+            className="btn btn-outline btn-sm"
+            style={{ width:"100%", marginTop:10, justifyContent:"center" }}
+            onClick={() => addStepAfter(rec.steps.length - 1)}
+          >
+            <Icon name="plus" size={14}/> Ajouter une étape
+          </button>
         </div>
       </div>
     </Sheet>
